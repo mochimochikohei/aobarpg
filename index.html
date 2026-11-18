@@ -1,0 +1,3142 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+
+<title>あおばRPG 豊洲の大冒険</title>
+
+<style>
+*{
+  box-sizing:border-box;
+  user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+
+html,body{
+  margin:0;
+  background:#07101f;
+  color:#fff2ce;
+  font-family:"Courier New","Yu Gothic",monospace;
+}
+
+body{
+  padding:12px 8px 25px;
+  text-align:center;
+  overflow-x:hidden;
+}
+
+h1{
+  margin:4px 0;
+  color:#ffe2a3;
+  text-shadow:0 3px #71482d;
+}
+
+.subtitle{
+  color:#92d8db;
+  font-weight:bold;
+  letter-spacing:.15em;
+}
+
+#gameShell{
+  position:relative;
+  width:min(96vw,1080px);
+  margin:auto;
+  border:5px solid #e9d9a5;
+  box-shadow:0 0 0 5px #142643;
+  background:#07101f;
+}
+
+canvas{
+  display:block;
+  width:100%;
+  image-rendering:pixelated;
+}
+
+#startOverlay{
+  position:absolute;
+  inset:0;
+  display:grid;
+  place-items:center;
+  background:rgba(4,9,23,.84);
+}
+
+.start-card{
+  background:#0a1730;
+  border:4px solid #e9d9a5;
+  padding:25px;
+  box-shadow:8px 8px #020711;
+}
+
+button{
+  font:inherit;
+  cursor:pointer;
+}
+
+#startButton{
+  padding:13px 25px;
+  border:0;
+  background:#f4bd5b;
+  font-weight:bold;
+}
+
+#controls{
+  margin:15px auto;
+}
+
+.moveButton{
+  width:60px;
+  height:45px;
+  margin:3px;
+  background:#10284a;
+  color:white;
+  border:2px solid #e9d9a5;
+}
+
+#actionButton{
+  display:block;
+  margin:8px auto;
+  padding:10px 25px;
+  background:#f4bd5b;
+  border:0;
+  font-weight:bold;
+}
+
+#battleCommands{
+  display:none;
+  grid-template-columns:repeat(2,minmax(130px,220px));
+  gap:9px;
+  justify-content:center;
+  margin:14px auto;
+  max-width:480px;
+}
+
+.command{
+  padding:11px 8px;
+  background:#10284a;
+  color:#fff2ce;
+  border:3px solid #e9d9a5;
+  font-weight:bold;
+}
+
+.command:disabled{
+  opacity:.35;
+}
+
+.note{
+  font-size:12px;
+  color:#9bc8d2;
+}
+</style>
+</head>
+
+<body>
+
+<h1>あおばRPG 豊洲の大冒険</h1>
+
+<p class="subtitle">
+TOYOSU WATERFRONT QUEST
+</p>
+
+<div id="gameShell">
+
+<canvas
+  id="gameCanvas"
+  width="960"
+  height="576">
+</canvas>
+
+<div id="startOverlay">
+
+  <div class="start-card">
+
+    <h2>TOYOSU QUEST</h2>
+
+    <p>
+      豊洲を探索して仲間と話し、<br>
+      たまごやきを3個集めよう。
+    </p>
+
+    <button id="startButton">
+      冒険をはじめる
+    </button>
+
+  </div>
+
+</div>
+
+</div>
+
+<div id="controls">
+
+<button class="moveButton" id="up">▲</button><br>
+
+<button class="moveButton" id="left">◀</button>
+
+<button class="moveButton" id="down">▼</button>
+
+<button class="moveButton" id="right">▶</button>
+
+<button id="actionButton">
+A　話す・調べる
+</button>
+
+</div>
+
+<div id="battleCommands">
+
+<button class="command" data-command="attack">
+⚔ たたかう
+</button>
+
+<button class="command" data-command="brush">
+🪥 歯ブラシ（小）
+</button>
+
+<button class="command" data-command="special">
+✨ とことこアタック
+</button>
+
+<button class="command" data-command="run">
+🏃 にげる
+</button>
+
+</div>
+
+<p class="note">
+PC：矢印キー/WASDで移動、Space/Enterで決定
+</p>
+
+<script>
+"use strict";
+
+/* =====================
+   BASIC
+===================== */
+
+const canvas =
+  document.getElementById("gameCanvas");
+
+const ctx =
+  canvas.getContext("2d");
+
+ctx.imageSmoothingEnabled = false;
+
+const TILE = 48;
+const COLS = 20;
+const ROWS = 12;
+
+const startOverlay =
+  document.getElementById("startOverlay");
+
+const controls =
+  document.getElementById("controls");
+
+const battleCommands =
+  document.getElementById("battleCommands");
+
+let started = false;
+let creditsStartTime = null;
+
+
+/* =====================
+   ENDING BGM
+===================== */
+
+const endingBgm =
+  new Audio("ending.mp3");
+
+endingBgm.loop = true;
+
+endingBgm.volume = 0.5;
+
+
+/* =====================
+   AOBA IMAGE
+===================== */
+
+const aobaImage =
+  new Image();
+
+let aobaReady =
+  false;
+
+aobaImage.onload =
+  () => {
+
+    aobaReady =
+      true;
+
+  };
+
+aobaImage.src =
+  "aoba-walk.png";
+
+
+/* =====================
+   MAP
+===================== */
+
+const ROAD = 0;
+const WALL = 1;
+const GRASS = 2;
+const WATER = 3;
+const RAIL = 4;
+const TREE = 5;
+const GATE = 6;
+
+
+const map = [
+
+[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+
+[1,1,1,1,2,2,2,0,0,0,0,0,2,2,2,1,1,6,1,1],
+
+[1,1,1,1,2,5,2,0,0,0,0,0,2,5,2,1,1,0,1,1],
+
+[1,2,2,2,2,2,2,0,0,0,0,0,2,2,2,2,2,0,2,1],
+
+[1,2,5,2,0,0,0,0,0,0,0,0,0,0,0,2,2,0,2,1],
+
+[1,2,2,2,0,0,0,0,0,0,0,0,0,0,0,2,2,0,2,1],
+
+[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+
+[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+
+[4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4],
+
+[3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
+
+[3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
+
+[3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3]
+
+];
+
+
+/* =====================
+   STATE
+===================== */
+
+const state = {
+
+  scene:"map",
+
+  quest:false,
+
+  brush:false,
+
+  keikoQuest:false,
+
+  eggs:0,
+
+  gateOpen:false,
+
+  dialog:false,
+
+  speaker:"",
+
+  lines:[],
+
+  line:0
+
+};
+
+
+/* =====================
+   PLAYER
+===================== */
+
+const player = {
+
+  x:9,
+
+  y:7,
+
+  px:9*TILE,
+
+  py:7*TILE,
+
+  direction:"right"
+
+};
+
+
+/* =====================
+   NPC
+===================== */
+
+const npcs = [
+
+{
+  id:"saho",
+  name:"さほ",
+  x:5,
+  y:4,
+  clothes:"#192441"
+},
+
+{
+  id:"kohei",
+  name:"康平",
+  x:12,
+  y:6,
+  clothes:"#27516b"
+},
+
+{
+  id:"keiko",
+  name:"けいこ",
+  x:15,
+  y:4,
+  clothes:"#303345"
+}
+
+];
+
+
+/* =====================
+   ITEMS
+===================== */
+
+const eggs = [
+
+{
+  x:5,
+  y:7,
+  taken:false
+},
+
+{
+  x:10,
+  y:3,
+  taken:false
+},
+
+{
+  x:14,
+  y:7,
+  taken:false
+}
+
+];
+
+
+/* =====================
+   BATTLE
+===================== */
+
+const battle = {
+
+  playerHP:30,
+
+  bossHP:100,
+
+  gauge:0,
+
+  brushUsed:false,
+
+  busy:false,
+
+  awakened:false,
+
+  phase:"intro",
+
+  message:
+    "ジェイスナカマが現れた！",
+
+  shake:0,
+
+  flash:0
+
+};
+
+
+/* =====================
+   MAP DRAWING
+===================== */
+
+function drawTile(
+  type,
+  x,
+  y,
+  c,
+  r
+){
+
+  if(type===ROAD){
+
+    ctx.fillStyle =
+      (c+r)%2
+      ? "#957860"
+      : "#a68c72";
+
+    ctx.fillRect(
+      x,y,TILE,TILE
+    );
+
+    ctx.fillStyle =
+      "#c6aa84";
+
+    ctx.fillRect(
+      x,y,TILE,3
+    );
+
+  }
+
+
+  if(type===WALL){
+
+    ctx.fillStyle =
+      (c+r)%2
+      ? "#202c41"
+      : "#34435a";
+
+    ctx.fillRect(
+      x,y,TILE,TILE
+    );
+
+    ctx.fillStyle =
+      "#60728b";
+
+    ctx.fillRect(
+      x,y,TILE,4
+    );
+
+  }
+
+
+  if(type===GRASS){
+
+    ctx.fillStyle =
+      (c+r)%2
+      ? "#234739"
+      : "#315b49";
+
+    ctx.fillRect(
+      x,y,TILE,TILE
+    );
+
+    ctx.fillStyle =
+      "#47755a";
+
+    for(
+      let i=0;
+      i<4;
+      i++
+    ){
+
+      ctx.fillRect(
+
+        x+
+        7+
+        (i*13)%35,
+
+        y+
+        8+
+        (i*9)%32,
+
+        3,
+
+        7
+
+      );
+
+    }
+
+  }
+
+
+  if(type===WATER){
+
+    ctx.fillStyle =
+      (c+r)%2
+      ? "#0a2d50"
+      : "#10557a";
+
+    ctx.fillRect(
+      x,y,TILE,TILE
+    );
+
+    ctx.fillStyle =
+      "#3f879b";
+
+    ctx.fillRect(
+      x+8,
+      y+15,
+      20,
+      3
+    );
+
+  }
+
+
+  if(type===RAIL){
+
+    drawTile(
+      ROAD,
+      x,y,c,r
+    );
+
+    ctx.fillStyle =
+      "#1d2a40";
+
+    ctx.fillRect(
+      x,
+      y+13,
+      TILE,
+      6
+    );
+
+    ctx.fillRect(
+      x+5,
+      y+15,
+      6,
+      27
+    );
+
+    ctx.fillRect(
+      x+36,
+      y+15,
+      6,
+      27
+    );
+
+  }
+
+
+  if(type===TREE){
+
+    drawTile(
+      GRASS,
+      x,y,c,r
+    );
+
+    ctx.fillStyle =
+      "#765038";
+
+    ctx.fillRect(
+      x+20,
+      y+22,
+      8,
+      24
+    );
+
+    ctx.fillStyle =
+      "#315d3c";
+
+    ctx.beginPath();
+
+    ctx.arc(
+      x+24,
+      y+18,
+      17,
+      0,
+      Math.PI*2
+    );
+
+    ctx.fill();
+
+  }
+
+
+  if(type===GATE){
+
+    drawTile(
+      ROAD,
+      x,y,c,r
+    );
+
+    ctx.fillStyle =
+      state.gateOpen
+      ? "#69428b"
+      : "#26344a";
+
+    ctx.fillRect(
+      x+7,
+      y,
+      34,
+      TILE
+    );
+
+    ctx.fillStyle =
+      "#e0b45e";
+
+    ctx.fillRect(
+      x+8,
+      y,
+      4,
+      TILE
+    );
+
+    ctx.fillRect(
+      x+36,
+      y,
+      4,
+      TILE
+    );
+
+  }
+
+}
+
+
+/* =====================
+   NPC DRAWING
+===================== */
+
+function drawNPC(n){
+
+  const cx =
+    n.x*TILE+
+    TILE/2;
+
+  const by =
+    n.y*TILE+
+    TILE;
+
+
+  ctx.fillStyle =
+    "rgba(0,0,0,.3)";
+
+  ctx.fillRect(
+    cx-16,
+    by-5,
+    32,
+    6
+  );
+
+
+  ctx.fillStyle =
+    n.clothes;
+
+  ctx.fillRect(
+    cx-16,
+    by-46,
+    32,
+    29
+  );
+
+
+  ctx.fillStyle =
+    "#edb88a";
+
+  ctx.fillRect(
+    cx-13,
+    by-67,
+    26,
+    23
+  );
+
+
+  ctx.fillStyle =
+    "#29231f";
+
+  ctx.fillRect(
+    cx-15,
+    by-72,
+    30,
+    10
+  );
+
+
+  ctx.fillStyle =
+    "#15151a";
+
+  ctx.fillRect(
+    cx-7,
+    by-58,
+    3,
+    3
+  );
+
+  ctx.fillRect(
+    cx+4,
+    by-58,
+    3,
+    3
+  );
+
+
+  ctx.fillStyle =
+    "#172033";
+
+  ctx.fillRect(
+    cx-12,
+    by-18,
+    9,
+    17
+  );
+
+  ctx.fillRect(
+    cx+3,
+    by-18,
+    9,
+    17
+  );
+
+
+  ctx.font =
+    'bold 11px "Yu Gothic"';
+
+  let width =
+    ctx.measureText(
+      n.name
+    ).width+
+    14;
+
+
+  ctx.fillStyle =
+    "#07101f";
+
+  ctx.fillRect(
+    cx-width/2,
+    by+4,
+    width,
+    18
+  );
+
+
+  ctx.fillStyle =
+    "#fff2ce";
+
+  ctx.textAlign =
+    "center";
+
+  ctx.fillText(
+    n.name,
+    cx,
+    by+7
+  );
+
+}
+
+
+/* =====================
+   AOBA DRAWING
+===================== */
+
+function drawPlayer(
+
+  x =
+    player.px+
+    TILE/2,
+
+  y =
+    player.py+
+    TILE,
+
+  width =
+    47,
+
+  forcedHeight =
+    null
+
+){
+
+  ctx.fillStyle =
+    "rgba(0,0,0,.3)";
+
+  ctx.fillRect(
+    x-20,
+    y-5,
+    40,
+    6
+  );
+
+
+  if(
+    !aobaReady
+  )
+    return;
+
+
+  const height =
+    forcedHeight ||
+    Math.min(
+
+      74,
+
+      width*
+      (
+        aobaImage.height/
+        aobaImage.width
+      )
+
+    );
+
+
+  ctx.save();
+
+
+  if(
+    player.direction===
+    "left"
+  ){
+
+    ctx.translate(
+      x,
+      0
+    );
+
+    ctx.scale(
+      -1,
+      1
+    );
+
+
+    ctx.drawImage(
+
+      aobaImage,
+
+      -width/2,
+
+      y-height,
+
+      width,
+
+      height
+
+    );
+
+  }
+
+
+  else{
+
+    ctx.drawImage(
+
+      aobaImage,
+
+      x-width/2,
+
+      y-height,
+
+      width,
+
+      height
+
+    );
+
+  }
+
+
+  ctx.restore();
+
+}
+
+
+/* =====================
+   COMMON UI
+===================== */
+
+function drawEgg(
+  x,
+  y
+){
+
+  ctx.fillStyle =
+    "#cf8c2b";
+
+  ctx.fillRect(
+    x-16,
+    y-10,
+    32,
+    21
+  );
+
+
+  ctx.fillStyle =
+    "#ffd35f";
+
+  ctx.fillRect(
+    x-13,
+    y-13,
+    27,
+    20
+  );
+
+
+  ctx.fillStyle =
+    "#fff0a0";
+
+  ctx.fillRect(
+    x-8,
+    y-8,
+    18,
+    3
+  );
+
+}
+
+
+function panel(
+  x,y,w,h
+){
+
+  ctx.fillStyle =
+    "#061126";
+
+  ctx.fillRect(
+    x,y,w,h
+  );
+
+
+  ctx.strokeStyle =
+    "#efe0b1";
+
+  ctx.lineWidth =
+    4;
+
+  ctx.strokeRect(
+    x+2,
+    y+2,
+    w-4,
+    h-4
+  );
+
+}
+
+
+function text(
+
+  value,
+  x,
+  y,
+  size,
+
+  color="#fff2ce",
+
+  align="left"
+
+){
+
+  ctx.font =
+    `bold ${size}px Courier New`;
+
+  ctx.textAlign =
+    align;
+
+  ctx.textBaseline =
+    "top";
+
+
+  ctx.fillStyle =
+    "#000814";
+
+  ctx.fillText(
+    value,
+    x+2,
+    y+2
+  );
+
+
+  ctx.fillStyle =
+    color;
+
+  ctx.fillText(
+    value,
+    x,
+    y
+  );
+
+}
+
+
+/* =====================
+   HUD
+===================== */
+
+function drawHUD(){
+
+  panel(
+    14,12,305,72
+  );
+
+  panel(
+    330,12,255,72
+  );
+
+  panel(
+    700,12,244,72
+  );
+
+
+  text(
+    "AOBA   LV 1",
+    31,
+    25,
+    22
+  );
+
+
+  text(
+    "HP 30 / 30",
+    31,
+    54,
+    15,
+    "#ffcf70"
+  );
+
+
+  text(
+    "TAMAGOYAKI",
+    347,
+    25,
+    14,
+    "#abd9d8"
+  );
+
+
+  for(
+    let i=0;
+    i<3;
+    i++
+  ){
+
+    ctx.globalAlpha =
+      i<state.eggs
+      ? 1
+      : .25;
+
+    drawEgg(
+      390+
+      i*48,
+      58
+    );
+
+  }
+
+  ctx.globalAlpha =
+    1;
+
+
+  text(
+    state.eggs+
+    "/3",
+    530,
+    54,
+    18
+  );
+
+
+  text(
+    "TOYOSU",
+    719,
+    25,
+    20
+  );
+
+}
+
+
+/* =====================
+   DIALOG
+===================== */
+
+function openDialog(
+  speaker,
+  lines
+){
+
+  state.dialog =
+    true;
+
+  state.speaker =
+    speaker;
+
+  state.lines =
+    lines;
+
+  state.line =
+    0;
+
+}
+
+
+function nextDialog(){
+
+  if(
+    !state.dialog
+  ){
+
+    interact();
+
+    return;
+
+  }
+
+
+  state.line++;
+
+
+  if(
+    state.line>=
+    state.lines.length
+  ){
+
+    state.dialog =
+      false;
+
+    state.line =
+      0;
+
+  }
+
+}
+
+
+function drawDialog(){
+
+  if(
+    !state.dialog
+  )
+    return;
+
+
+  panel(
+    60,
+    420,
+    840,
+    130
+  );
+
+
+  text(
+    state.speaker,
+    90,
+    440,
+    20,
+    "#ffd272"
+  );
+
+
+  ctx.font =
+    'bold 18px "Yu Gothic"';
+
+  ctx.fillStyle =
+    "#fff2ce";
+
+  ctx.textAlign =
+    "left";
+
+
+  ctx.fillText(
+
+    state.lines[
+      state.line
+    ],
+
+    90,
+    485
+
+  );
+
+}
+
+
+/* =====================
+   MOVEMENT
+===================== */
+
+function walkable(
+  x,y
+){
+
+  if(
+    x<0 ||
+    y<0 ||
+    x>=COLS ||
+    y>=ROWS
+  )
+    return false;
+
+
+  const tile =
+    map[y][x];
+
+
+  if(
+    [
+      WALL,
+      WATER,
+      RAIL,
+      TREE
+    ].includes(tile)
+  )
+    return false;
+
+
+  if(
+    tile===
+    GATE &&
+    !state.gateOpen
+  )
+    return false;
+
+
+  return !npcs.some(
+
+    npc=>
+
+      npc.x===x &&
+      npc.y===y
+
+  );
+
+}
+
+
+function move(
+  dx,
+  dy
+){
+
+  if(
+    !started ||
+    state.dialog ||
+    state.scene!==
+    "map"
+  )
+    return;
+
+
+  if(dx<0)
+    player.direction =
+      "left";
+
+
+  if(dx>0)
+    player.direction =
+      "right";
+
+
+  const nextX =
+    player.x+
+    dx;
+
+
+  const nextY =
+    player.y+
+    dy;
+
+
+  if(
+    !walkable(
+      nextX,
+      nextY
+    )
+  )
+    return;
+
+
+  player.x =
+    nextX;
+
+  player.y =
+    nextY;
+
+
+  player.px =
+    nextX*TILE;
+
+  player.py =
+    nextY*TILE;
+
+
+  checkEgg();
+
+
+  if(
+
+    state.gateOpen &&
+
+    player.x===17 &&
+
+    player.y===1
+
+  ){
+
+    startBattle();
+
+  }
+
+}
+
+
+/* =====================
+   QUEST
+===================== */
+
+function distance(
+  x1,y1,x2,y2
+){
+
+  return(
+    Math.abs(
+      x1-x2
+    )
+    +
+    Math.abs(
+      y1-y2
+    )
+  );
+
+}
+
+
+function interact(){
+
+  for(
+    const npc of
+    npcs
+  ){
+
+    if(
+
+      distance(
+
+        player.x,
+        player.y,
+
+        npc.x,
+        npc.y
+
+      )<=1
+
+    ){
+
+      talk(
+        npc.id
+      );
+
+      return;
+
+    }
+
+  }
+
+}
+
+
+function talk(id){
+
+  if(
+    id===
+    "saho"
+  ){
+
+    state.quest =
+      true;
+
+
+    openDialog(
+
+      "さほ",
+
+      [
+        "あおば、豊洲の冒険へ出発しよう！",
+        "けいこがお願いしたいことがあるみたい。",
+        "康平にも話しかけてみて！"
+      ]
+
+    );
+
+  }
+
+
+  if(
+    id===
+    "kohei"
+  ){
+
+    if(
+      !state.brush
+    ){
+
+      state.brush =
+        true;
+
+
+      openDialog(
+
+        "康平",
+
+        [
+          "あおば、この先は長いぞ。",
+          "グレープ味の歯磨き粉付き歯ブラシ（小）を持っていきな。",
+          "きっと役に立つはずだ！"
+        ]
+
+      );
+
+    }
+
+
+    else{
+
+      openDialog(
+
+        "康平",
+
+        [
+          "歯ブラシは大切に持っておくんだぞ！"
+        ]
+
+      );
+
+    }
+
+  }
+
+
+  if(
+    id===
+    "keiko"
+  ){
+
+    if(
+      !state.keikoQuest
+    ){
+
+      state.keikoQuest =
+        true;
+
+
+      openDialog(
+
+        "けいこ",
+
+        [
+          "ジェイスナカマのところへ行くにはまだ早いよ。",
+          "豊洲に隠されたたまごやきを3つ集めておいで。"
+        ]
+
+      );
+
+      return;
+
+    }
+
+
+    if(
+      state.eggs<3
+    ){
+
+      openDialog(
+
+        "けいこ",
+
+        [
+          "まだ全部集まっていないみたい。",
+          "豊洲をもう少し探してみよう！"
+        ]
+
+      );
+
+      return;
+
+    }
+
+
+    if(
+      !state.gateOpen
+    ){
+
+      state.gateOpen =
+        true;
+
+
+      openDialog(
+
+        "けいこ",
+
+        [
+          "3つとも見つけたね。よくできました。",
+          "ジェイスナカマへのゲートが開いたよ！"
+        ]
+
+      );
+
+    }
+
+  }
+
+}
+
+
+function checkEgg(){
+
+  if(
+    !state.keikoQuest
+  )
+    return;
+
+
+  for(
+    const egg of
+    eggs
+  ){
+
+    if(
+      !egg.taken &&
+      egg.x===
+      player.x &&
+      egg.y===
+      player.y
+    ){
+
+      egg.taken =
+        true;
+
+      state.eggs++;
+
+    }
+
+  }
+
+}
+
+
+/* =====================
+   MAP SCENE
+===================== */
+
+function drawMapScene(){
+
+  const gradient =
+    ctx.createLinearGradient(
+      0,0,0,576
+    );
+
+
+  gradient.addColorStop(
+    0,
+    "#18234b"
+  );
+
+
+  gradient.addColorStop(
+    1,
+    "#b75b5f"
+  );
+
+
+  ctx.fillStyle =
+    gradient;
+
+
+  ctx.fillRect(
+    0,0,960,576
+  );
+
+
+  for(
+    let row=0;
+    row<ROWS;
+    row++
+  ){
+
+    for(
+      let column=0;
+      column<COLS;
+      column++
+    ){
+
+      drawTile(
+
+        map[row][column],
+
+        column*TILE,
+
+        row*TILE,
+
+        column,
+
+        row
+
+      );
+
+    }
+
+  }
+
+
+  eggs.forEach(
+    egg=>{
+
+      if(
+        !egg.taken
+      ){
+
+        drawEgg(
+
+          egg.x*TILE+
+          24,
+
+          egg.y*TILE+
+          24
+
+        );
+
+      }
+
+    }
+  );
+
+
+  npcs.forEach(
+    drawNPC
+  );
+
+
+  drawPlayer();
+
+  drawHUD();
+
+  drawDialog();
+
+}
+
+
+/* =====================
+   BATTLE START
+===================== */
+
+function startBattle(){
+
+  state.scene =
+    "battle";
+
+
+  state.dialog =
+    false;
+
+
+  controls.style.display =
+    "none";
+
+
+  battleCommands.style.display =
+    "grid";
+
+
+  player.direction =
+    "right";
+
+
+  battle.playerHP =
+    30;
+
+
+  battle.bossHP =
+    100;
+
+
+  battle.gauge =
+    0;
+
+
+  battle.brushUsed =
+    false;
+
+
+  battle.awakened =
+    false;
+
+
+  battle.phase =
+    "intro";
+
+
+  battle.busy =
+    true;
+
+
+  battle.message =
+    "ジェイスナカマが現れた！";
+
+
+  setCommands(
+    false
+  );
+
+
+  setTimeout(
+    ()=>{
+
+      battle.phase =
+        "command";
+
+
+      battle.busy =
+        false;
+
+
+      battle.message =
+        "コマンドを選んでください";
+
+
+      setCommands(
+        true
+      );
+
+    },
+    1200
+  );
+
+}
+
+
+/* =====================
+   HP
+===================== */
+
+function hpBar(
+  x,y,w,h,
+  value,max,color
+){
+
+  ctx.fillStyle =
+    "#14182a";
+
+  ctx.fillRect(
+    x,y,w,h
+  );
+
+
+  ctx.fillStyle =
+    color;
+
+
+  ctx.fillRect(
+
+    x+4,
+
+    y+4,
+
+    (w-8)*
+    Math.max(
+      0,
+      value/max
+    ),
+
+    h-8
+
+  );
+
+
+  ctx.strokeStyle =
+    "#efe0b1";
+
+  ctx.lineWidth =
+    3;
+
+
+  ctx.strokeRect(
+    x,y,w,h
+  );
+
+}
+
+
+/* =====================
+   BOSS
+===================== */
+
+function drawBoss(){
+
+  const x =
+    720;
+
+  const y =
+    290;
+
+
+  const pulse =
+    Math.sin(
+      performance.now()/
+      180
+    )*5;
+
+
+  ctx.globalAlpha =
+    .23;
+
+
+  ctx.fillStyle =
+    "#9a55cf";
+
+
+  ctx.beginPath();
+
+  ctx.arc(
+
+    x,
+
+    y-70,
+
+    85+pulse,
+
+    0,
+
+    Math.PI*2
+
+  );
+
+  ctx.fill();
+
+
+  ctx.globalAlpha =
+    1;
+
+
+  ctx.fillStyle =
+    "#313040";
+
+
+  ctx.fillRect(
+    x-50,
+    y-78,
+    100,
+    105
+  );
+
+
+  ctx.fillStyle =
+    "#edb88a";
+
+
+  ctx.fillRect(
+    x-38,
+    y-140,
+    76,
+    68
+  );
+
+
+  ctx.fillStyle =
+    "#3a342f";
+
+
+  ctx.fillRect(
+    x-42,
+    y-151,
+    84,
+    24
+  );
+
+
+  ctx.fillStyle =
+    "#f3bd54";
+
+
+  ctx.fillRect(
+    x-31,
+    y-169,
+    62,
+    12
+  );
+
+
+  ctx.fillRect(
+    x-28,
+    y-186,
+    12,
+    18
+  );
+
+
+  ctx.fillRect(
+    x-6,
+    y-196,
+    12,
+    28
+  );
+
+
+  ctx.fillRect(
+    x+17,
+    y-186,
+    12,
+    18
+  );
+
+
+  text(
+
+    "ジェイスナカマ",
+
+    x,
+
+    y+39,
+
+    18,
+
+    "#ffe2a3",
+
+    "center"
+
+  );
+
+}
+
+
+/* =====================
+   BATTLE DRAWING
+===================== */
+
+function drawBattle(){
+
+  const shakeX =
+    battle.shake
+    ? Math.floor(
+        Math.random()*13
+      )-6
+    : 0;
+
+
+  const shakeY =
+    battle.shake
+    ? Math.floor(
+        Math.random()*9
+      )-4
+    : 0;
+
+
+  ctx.save();
+
+
+  ctx.translate(
+    shakeX,
+    shakeY
+  );
+
+
+  const gradient =
+    ctx.createLinearGradient(
+      0,0,0,576
+    );
+
+
+  gradient.addColorStop(
+    0,
+    "#100b27"
+  );
+
+
+  gradient.addColorStop(
+    .55,
+    "#412454"
+  );
+
+
+  gradient.addColorStop(
+    1,
+    "#07101f"
+  );
+
+
+  ctx.fillStyle =
+    gradient;
+
+
+  ctx.fillRect(
+    -10,
+    -10,
+    980,
+    596
+  );
+
+
+  panel(
+    25,20,420,105
+  );
+
+
+  text(
+    "AOBA",
+    48,
+    38,
+    24
+  );
+
+
+  text(
+
+    `HP ${
+      Math.max(
+        0,
+        battle.playerHP
+      )
+    } / 30`,
+
+    48,
+    75,
+    17,
+    "#ffcf70"
+
+  );
+
+
+  hpBar(
+
+    190,
+    72,
+    220,
+    20,
+
+    battle.playerHP,
+
+    30,
+
+    "#5dcc77"
+
+  );
+
+
+  panel(
+    515,20,420,105
+  );
+
+
+  text(
+    "JAYSNAKAMA",
+    538,
+    38,
+    24
+  );
+
+
+  text(
+
+    `HP ${
+      Math.max(
+        0,
+        battle.bossHP
+      )
+    } / 100`,
+
+    538,
+    75,
+    17,
+    "#d7a4ff"
+
+  );
+
+
+  hpBar(
+
+    715,
+    72,
+    185,
+    20,
+
+    battle.bossHP,
+
+    100,
+
+    "#9f57ca"
+
+  );
+
+
+  /*
+   バトル中は必ず右向き
+  */
+
+  const savedDirection =
+    player.direction;
+
+
+  player.direction =
+    "right";
+
+
+  drawPlayer(
+    235,
+    390,
+    115,
+    180
+  );
+
+
+  player.direction =
+    savedDirection;
+
+
+  drawBoss();
+
+
+  panel(
+    60,
+    430,
+    840,
+    120
+  );
+
+
+  text(
+
+    battle.message,
+
+    480,
+
+    458,
+
+    20,
+
+    "#fff2ce",
+
+    "center"
+
+  );
+
+
+  text(
+
+    `とことこゲージ ${battle.gauge}%`,
+
+    480,
+
+    500,
+
+    15,
+
+    battle.gauge>=100
+    ? "#ffe15e"
+    : "#86d5dc",
+
+    "center"
+
+  );
+
+
+  ctx.restore();
+
+
+  if(
+    battle.flash>0
+  ){
+
+    ctx.fillStyle =
+
+      `rgba(
+        255,
+        245,
+        160,
+        ${
+          battle.flash/
+          10
+        }
+      )`;
+
+
+    ctx.fillRect(
+      0,0,960,576
+    );
+
+
+    battle.flash--;
+
+  }
+
+}
+
+
+/* =====================
+   COMMANDS
+===================== */
+
+function setCommands(on){
+
+  document
+  .querySelectorAll(
+    ".command"
+  )
+  .forEach(
+
+    button=>
+
+      button.disabled =
+        !on
+
+  );
+
+
+  document
+  .querySelector(
+    '[data-command="brush"]'
+  )
+  .disabled =
+
+    !on ||
+
+    battle.brushUsed ||
+
+    !state.brush;
+
+
+  document
+  .querySelector(
+    '[data-command="special"]'
+  )
+  .disabled =
+
+    !on ||
+
+    battle.gauge<
+    100;
+
+}
+
+
+function command(type){
+
+  if(
+    battle.busy ||
+    battle.phase!==
+    "command"
+  )
+    return;
+
+
+  battle.busy =
+    true;
+
+
+  setCommands(
+    false
+  );
+
+
+  if(
+    type===
+    "attack"
+  ){
+
+    const damage =
+      8+
+      Math.floor(
+        Math.random()*7
+      );
+
+
+    battle.bossHP -=
+      damage;
+
+
+    battle.gauge =
+      Math.min(
+        100,
+        battle.gauge+
+        35
+      );
+
+
+    battle.message =
+
+      `あおばの攻撃！ ${damage}ダメージ！`;
+
+
+    afterPlayer();
+
+  }
+
+
+  else if(
+    type===
+    "brush"
+  ){
+
+    if(
+      battle.brushUsed ||
+      !state.brush
+    )
+      return;
+
+
+    battle.brushUsed =
+      true;
+
+
+    const heal =
+      Math.min(
+        15,
+        30-
+        battle.playerHP
+      );
+
+
+    battle.playerHP +=
+      heal;
+
+
+    battle.message =
+
+      `グレープ味の歯ブラシ（小）！ HPが${heal}回復！`;
+
+
+    afterPlayer();
+
+  }
+
+
+  else if(
+    type===
+    "special"
+  ){
+
+    if(
+      battle.gauge<
+      100
+    )
+      return;
+
+
+    const damage =
+      25+
+      Math.floor(
+        Math.random()*11
+      );
+
+
+    battle.bossHP -=
+      damage;
+
+
+    battle.gauge =
+      0;
+
+
+    battle.flash =
+      7;
+
+
+    battle.message =
+
+      `とことこアタック！ ${damage}ダメージ！`;
+
+
+    afterPlayer();
+
+  }
+
+
+  else{
+
+    battle.message =
+
+      "ここまで来て逃げるの？ 逃げられない！";
+
+
+    afterPlayer();
+
+  }
+
+}
+
+
+/* =====================
+   ENEMY TURN
+===================== */
+
+function afterPlayer(){
+
+  setTimeout(
+    ()=>{
+
+      if(
+        battle.bossHP<=0
+      ){
+
+        battle.bossHP =
+          1;
+
+
+        battle.message =
+
+          "ジェイスナカマは最後の力で耐えた！";
+
+      }
+
+
+      setTimeout(
+        enemyTurn,
+        900
+      );
+
+    },
+    900
+  );
+
+}
+
+
+function enemyTurn(){
+
+  let damage =
+
+    6+
+    Math.floor(
+      Math.random()*5
+    );
+
+
+  if(
+    battle.playerHP<=8
+  ){
+
+    damage =
+      12;
+
+  }
+
+
+  battle.playerHP -=
+    damage;
+
+
+  battle.shake =
+    12;
+
+
+  battle.message =
+
+    `ジェイスナカマ「豊洲ファイナルインパクト！」 ${damage}ダメージ！`;
+
+
+  setTimeout(
+    ()=>{
+
+      battle.shake =
+        0;
+
+    },
+    450
+  );
+
+
+  if(
+    battle.playerHP<=0
+  ){
+
+    setTimeout(
+      awakening,
+      1300
+    );
+
+  }
+
+
+  else{
+
+    setTimeout(
+      ()=>{
+
+        battle.message =
+          "コマンドを選んでください";
+
+
+        battle.busy =
+          false;
+
+
+        setCommands(
+          true
+        );
+
+      },
+      1200
+    );
+
+  }
+
+}
+
+
+/* =====================
+   AWAKENING
+===================== */
+
+function awakening(){
+
+  battle.phase =
+    "awakening";
+
+
+  battle.message =
+    "あおばは たおれてしまった……";
+
+
+  setTimeout(
+    ()=>{
+
+      battle.message =
+        "・・・・・・";
+
+    },
+    2000
+  );
+
+
+  setTimeout(
+    ()=>{
+
+      battle.message =
+        "・・・・・・・・・・";
+
+    },
+    4000
+  );
+
+
+  setTimeout(
+    ()=>{
+
+      battle.message =
+        "GAME OV...";
+
+    },
+    6000
+  );
+
+
+  setTimeout(
+    ()=>{
+
+      battle.message =
+        "・・・・・・・・・・";
+
+    },
+    8000
+  );
+
+
+  setTimeout(
+    ()=>{
+
+      battle.message =
+        "？？？「まだだ……」";
+
+    },
+    10000
+  );
+
+
+  setTimeout(
+    ()=>{
+
+      battle.message =
+        "・・・・・・";
+
+    },
+    12000
+  );
+
+
+  setTimeout(
+    ()=>{
+
+      battle.awakened =
+        true;
+
+
+      battle.flash =
+        10;
+
+
+      battle.shake =
+        30;
+
+
+      battle.message =
+
+        "あおば「アンペンメァァァン！！！」";
+
+    },
+    13500
+  );
+
+
+  setTimeout(
+    ()=>{
+
+      battle.shake =
+        0;
+
+
+      battle.bossHP =
+        0;
+
+
+      battle.message =
+
+        "必殺技 アンペンメァン！ 999ダメージ！！";
+
+    },
+    15500
+  );
+
+
+  setTimeout(
+    victory,
+    17500
+  );
+
+}
+
+
+/* =====================
+   VICTORY
+===================== */
+
+function victory(){
+
+  battle.phase =
+    "victory";
+
+
+  battle.message =
+    "QUEST CLEAR！ ジェイスナカマをたおした！";
+
+
+  setTimeout(
+    ()=>{
+
+      battle.message =
+        "さほ「やったね、あおば！」";
+
+    },
+    2000
+  );
+
+
+  setTimeout(
+    ()=>{
+
+      battle.message =
+        "康平「歯ブラシ（小）、使ったかな……」";
+
+    },
+    4000
+  );
+
+
+  setTimeout(
+    ()=>{
+
+      battle.message =
+        "けいこ「よくできました。」";
+
+    },
+    6000
+  );
+
+
+  setTimeout(
+    ()=>{
+
+      battle.message =
+        "あおば「アンペンメァン！」";
+
+    },
+    8000
+  );
+
+
+  setTimeout(
+    ()=>{
+
+      battle.message =
+        "THE END";
+
+    },
+    10000
+  );
+
+
+  /*
+    12.5秒後に
+    エンドロールへ
+  */
+
+  setTimeout(
+    ()=>{
+
+      creditsStartTime =
+        null;
+
+
+      battle.phase =
+        "credits";
+
+
+      battle.message =
+        "";
+
+
+      /*
+        ★ エンディングBGM開始
+      */
+
+      endingBgm.currentTime =
+        0;
+
+
+      endingBgm.play()
+      .catch(
+        error=>{
+
+          console.log(
+            "BGMを再生できませんでした",
+            error
+          );
+
+        }
+      );
+
+    },
+    12500
+  );
+
+}
+
+
+/* =====================
+   CREDITS
+===================== */
+
+function drawCredits(){
+
+  if(
+    creditsStartTime===
+    null
+  ){
+
+    creditsStartTime =
+      performance.now();
+
+  }
+
+
+  const elapsed =
+
+    performance.now() -
+    creditsStartTime;
+
+
+  /*
+    背景
+  */
+
+  ctx.fillStyle =
+    "#030611";
+
+
+  ctx.fillRect(
+    0,
+    0,
+    960,
+    576
+  );
+
+
+  /*
+    THE END
+  */
+
+  text(
+
+    "THE END",
+
+    480,
+
+    165,
+
+    42,
+
+    "#ffe2a3",
+
+    "center"
+
+  );
+
+
+  /*
+    制作
+  */
+
+  text(
+
+    "制作：もちもちくん",
+
+    480,
+
+    290,
+
+    24,
+
+    "#fff2ce",
+
+    "center"
+
+  );
+
+
+  /*
+    約4秒後
+  */
+
+  if(
+    elapsed>
+    4000
+  ){
+
+    text(
+
+      "あおば　マンママンマ♪",
+
+      480,
+
+      390,
+
+      15,
+
+      "#9bb8c7",
+
+      "center"
+
+    );
+
+  }
+
+}
+
+
+/* =====================
+   RENDER
+===================== */
+
+function render(){
+
+  ctx.clearRect(
+    0,
+    0,
+    960,
+    576
+  );
+
+
+  if(
+    state.scene===
+    "map"
+  ){
+
+    drawMapScene();
+
+  }
+
+
+  else if(
+    battle.phase===
+    "credits"
+  ){
+
+    drawCredits();
+
+  }
+
+
+  else{
+
+    drawBattle();
+
+  }
+
+
+  requestAnimationFrame(
+    render
+  );
+
+}
+
+
+/* =====================
+   PC CONTROL
+===================== */
+
+document.addEventListener(
+  "keydown",
+  event=>{
+
+    if(
+      state.scene===
+      "battle"
+    )
+      return;
+
+
+    const key =
+      event.key.toLowerCase();
+
+
+    if(
+      event.key===
+      "ArrowUp" ||
+      key==="w"
+    )
+      move(
+        0,-1
+      );
+
+
+    if(
+      event.key===
+      "ArrowDown" ||
+      key==="s"
+    )
+      move(
+        0,1
+      );
+
+
+    if(
+      event.key===
+      "ArrowLeft" ||
+      key==="a"
+    )
+      move(
+        -1,0
+      );
+
+
+    if(
+      event.key===
+      "ArrowRight" ||
+      key==="d"
+    )
+      move(
+        1,0
+      );
+
+
+    if(
+      event.code===
+      "Space" ||
+      event.key===
+      "Enter"
+    ){
+
+      event.preventDefault();
+
+      nextDialog();
+
+    }
+
+  }
+);
+
+
+/* =====================
+   BUTTONS
+===================== */
+
+document
+.getElementById(
+  "up"
+)
+.onclick =
+()=>move(
+  0,-1
+);
+
+
+document
+.getElementById(
+  "down"
+)
+.onclick =
+()=>move(
+  0,1
+);
+
+
+document
+.getElementById(
+  "left"
+)
+.onclick =
+()=>move(
+  -1,0
+);
+
+
+document
+.getElementById(
+  "right"
+)
+.onclick =
+()=>move(
+  1,0
+);
+
+
+document
+.getElementById(
+  "actionButton"
+)
+.onclick =
+nextDialog;
+
+
+document
+.querySelectorAll(
+  ".command"
+)
+.forEach(
+
+  button=>
+
+    button.onclick =
+      ()=>command(
+        button.dataset.command
+      )
+
+);
+
+
+/* =====================
+   START
+===================== */
+
+document
+.getElementById(
+  "startButton"
+)
+.onclick =
+()=>{
+
+  started =
+    true;
+
+
+  startOverlay
+  .style
+  .display =
+    "none";
+
+};
+
+
+/* =====================
+   GAME START
+===================== */
+
+render();
+
+</script>
+
+</body>
+</html>
